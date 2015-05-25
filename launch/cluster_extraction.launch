@@ -1,0 +1,5 @@
+<launch>
+   <node pkg="cluster_extraction" type="cluster_extraction" name="cluster_extraction" output="screen"/>
+   <node pkg="cluster_extraction" type="cluster_transform" name="cluster_transform" output="screen"/>
+   <node pkg="cluster_extraction" type="hand_transform" name="hand_transform" output="screen"/>
+</launch>
