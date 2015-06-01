@@ -3,21 +3,20 @@
 #include <tf/transform_broadcaster.h>
 #include <tf/transform_listener.h>
 
-class TranformCloud
-{
+class PointCloudTransformer {
 public:
-    TranformCloud()
+    PointCloudTransformer()
     {
-        sub_ = n_.subscribe("/camera/depth/points", 1, &TranformCloud::callback, this);
+        sub_ = n_.subscribe("/camera/depth/points", 1, &PointCloudTransformer::callback, this);
     }
 
     void callback(const sensor_msgs::PointCloud2::ConstPtr& msg) {
-        tf::Transform cameraTransform;
-        cameraTransform.setOrigin( tf::Vector3(0.0, 0.0, 0.0) );
+        tf::Transform camera_transform;
+        camera_transform.setOrigin( tf::Vector3(0.0, 0.0, 0.0) );
         tf::Quaternion q;
         q.setRPY(0, 0, 0);
-        cameraTransform.setRotation(q);
-        br_.sendTransform(tf::StampedTransform(cameraTransform, msg->header.stamp, "xtion_link", "camera_link"));
+        camera_transform.setRotation(q);
+        br_.sendTransform(tf::StampedTransform(camera_transform, msg->header.stamp, "xtion_link", "camera_link"));
     }
 
 
@@ -31,7 +30,7 @@ int main(int argc, char **argv)
 {
     ros::init(argc, argv, "transform_cloud");
 
-    TranformCloud SAPObject;
+    PointCloudTransformer cloudTransformer;
 
     ros::Rate r(10);
     while(ros::ok()) {

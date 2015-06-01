@@ -12,97 +12,91 @@
 using namespace cv;
 using namespace std;
 
-class ContourDetector {
+class ManipulatorAdjuster {
+public:
+  ManipulatorAdjuster()
+      : it_(nh_)
+  {
+    image_sub_ = it_.subscribe("/cam2/image_raw", 1, &ManipulatorAdjuster::imageCallback, this);
+    delta_x_pub_ = nh_.advertise<cluster_extraction::manipulatorAdjustment>("/adjust_manipulator_x", 1);
+    object_distance_sub_ = nh_.subscribe("/manipulator_to_object_distance", 1, &ManipulatorAdjuster::objectDistanceCallback, this);
+    use_contour_detection_to_find_corners_ = true;
+    manipulator_to_object_distance_ = 0;
+    sync_counter_ = 0;
+    is_manipulator_close_ = false;
+    grab_object_ = false;
+
+    nh_.param("object_grayscale_for_centering_", object_grayscale_for_centering_, 220);
+    nh_.param("object_grayscale_for_grabbing_close_", object_grayscale_for_grabbing_close_, 160);
+    nh_.param("look_for_grayscale_min_x_close_", look_for_grayscale_min_x_close_, 520);
+    nh_.param("look_for_grayscale_max_x_close_", look_for_grayscale_max_x_close_, 630);
+    nh_.param("look_for_grayscale_min_y_close_", look_for_grayscale_min_y_close_, 830);
+    nh_.param("look_for_grayscale_max_y_close_", look_for_grayscale_max_y_close_, 860);
+    nh_.param("look_for_grayscale_max_y_close_", horizontal_angle_, 25.9);
+    nh_.param("cut_image_y_", cut_image_y_, 700);
+    nh_.param("distance_to_object_close_manipulator_", distance_to_object_close_manipulator_, 0.05);
+    nh_.param("grab_below_grayscale_point_count_", grab_below_grayscale_point_count_, 1000);
+    nh_.param("detect_contours_with_size_min_", detect_contours_with_size_min_, 150);
+    nh_.param("detect_contours_with_size_max_", detect_contours_with_size_max_, 400);
+    nh_.param("detect_close_contours_with_size_min_", detect_close_contours_with_size_min_, 250);
+    nh_.param("detect_contours_between_min_y_", detect_contours_between_min_y_, 384); //image_.rows*0.4
+    nh_.param("detect_contours_between_max_y_", detect_contours_between_max_y_, 768);//image_.rows*0.8
+    nh_.param("min_array_size_to_use_grayscale_detection_", min_array_size_to_use_grayscale_detection_, 500);
+  }
+
 private:
   ros::NodeHandle nh_;
   image_transport::ImageTransport it_;
   image_transport::Subscriber image_sub_;
   ros::Publisher delta_x_pub_;
   ros::Subscriber object_distance_sub_;
-  Mat src_gray;
-  Mat image;
-  Mat cutImage;
-  Mat cutImageGray;
-  bool useContourDetectionToFindCorners;
-  Corner leftCorner;
-  Corner rightCorner;
-  int cornersDistance;
-  double manipulatorToObjectDistance;
-  static const double horizontalAngle = 25.9;
-  int syncCounter;
-  bool grabObject;
-  bool addObjectLastFrame;
-  vector<Corner> recoveryArray;
-  vector<Corner> closeArray;
-  int imageMiddleX;
-  Mat drawing;
-  Mat cutDrawing;
-  double objectLocationPixelsX;
-  bool manipulatorIsClose;
-  vector<Point> objectTopArray;
-  int lookForGrayscaleMaxXClose;
-  int lookForGrayscaleMinXClose;
-  int lookForGrayscaleMaxYClose;
-  int lookForGrayscaleMinYClose;
-  int objectGrayscaleForCentering;
-  int objectGrayscaleForGrabbingClose;
-  int objectGrayscaleForGrabbingFar;
-  bool grayscaleClose;
-  bool grayscaleFar;
-  bool grayscaleFarAway;
-  int lookForGrayscaleMinXFar;
-  int lookForGrayscaleMaxXFar;
-  int lookForGrayscaleMinYFar;
-  int lookForGrayscaleMaxYFar;
-  int lookForGrayscaleMinXFarAway;
-  int lookForGrayscaleMaxXFarAway;
-  int lookForGrayscaleMinYFarAway;
-  int lookForGrayscaleMaxYFarAway;
-
-public:
-  ContourDetector()
-      : it_(nh_)
-  {
-    image_sub_ = it_.subscribe("/cam2/image_raw", 1, &ContourDetector::imageCallback, this);
-    delta_x_pub_ = nh_.advertise<cluster_extraction::manipulatorAdjustment>("/adjust_manipulator_x", 1);
-    object_distance_sub_ = nh_.subscribe("/manipulator_to_object_distance", 1, &ContourDetector::objectDistanceCallback, this);
-    useContourDetectionToFindCorners = true;
-    manipulatorToObjectDistance = 0;
-    syncCounter = 0;
-    manipulatorIsClose = false;
-    grabObject = false;
-    lookForGrayscaleMinXClose = 520;
-    lookForGrayscaleMaxXClose = 630;
-    lookForGrayscaleMinYClose = 830;
-    lookForGrayscaleMaxYClose = 860;
-
-    lookForGrayscaleMinXFar = 520;
-    lookForGrayscaleMaxXFar = 630;
-    lookForGrayscaleMinYFar = 580;
-    lookForGrayscaleMaxYFar = 610;
-
-    lookForGrayscaleMinXFarAway = 320;
-    lookForGrayscaleMaxXFarAway = 830;
-    lookForGrayscaleMinYFarAway = 80;
-    lookForGrayscaleMaxYFarAway = 110;
-
-    nh_.param("objectGrayscaleForCentering", objectGrayscaleForCentering, 215);
-    nh_.param("objectGrayscaleForGrabbingClose", objectGrayscaleForGrabbingClose, 160); //140 töötaks ka
-    nh_.param("objectGrayscaleForGrabbingClose", objectGrayscaleForGrabbingFar, 170);
-  }
+  Mat src_gray_;
+  Mat image_;
+  Mat cut_image_;
+  Mat cut_image_gray_;
+  Mat drawing_;
+  Mat cut_drawing_;
+  Corner left_corner_;
+  Corner right_corner_;
+  vector<Point> object_grayscale_points_;
+  bool use_contour_detection_to_find_corners_;
+  bool is_manipulator_close_;
+  bool grab_object_;
+  bool grab_object_grayscale_close_;
+  int corner_distance_;
+  int sync_counter_;
+  int image_middle_x_;
+  int look_for_grayscale_max_x_close_;
+  int look_for_grayscale_min_x_close_;
+  int look_for_grayscale_max_y_close_;
+  int look_for_grayscale_min_y_close_;
+  int object_grayscale_for_centering_;
+  int object_grayscale_for_grabbing_close_;
+  int cut_image_y_;
+  int grab_below_grayscale_point_count_;
+  int detect_contours_with_size_min_;
+  int detect_contours_with_size_max_;
+  int detect_close_contours_with_size_min_;
+  int detect_contours_between_min_y_;
+  int detect_contours_between_max_y_;
+  int min_array_size_to_use_grayscale_detection_;
+  double manipulator_to_object_distance_;
+  double object_location_pixels_x_;
+  double horizontal_angle_;
+  double distance_to_object_close_manipulator_;
 
   void imageCallback(const sensor_msgs::ImageConstPtr& msg)
   {
     try
     {
       cv::Mat imageIn(cv_bridge::toCvCopy(msg, "bgr8")->image);
-      image = imageIn;
-      cutImage = imageIn;
-      cutImage.resize(700);
-      cvtColor( cutImage, cutImageGray, CV_BGR2GRAY );
-      blur( cutImageGray, cutImageGray, Size(3,3) );
-      cvtColor( image, src_gray, CV_BGR2GRAY );
-      blur( src_gray, src_gray, Size(3,3) );
+      image_ = imageIn;
+      cut_image_ = imageIn;
+      cut_image_.resize(cut_image_y_);
+      cvtColor(cut_image_, cut_image_gray_, CV_BGR2GRAY );
+      blur(cut_image_gray_, cut_image_gray_, Size(3,3) );
+      cvtColor(image_, src_gray_, CV_BGR2GRAY );
+      blur(src_gray_, src_gray_, Size(3,3) );
 //      createTrackbar( " Threshold:", "Source", &thresh, max_thresh, thresh_callback );
       thresh_callback( 0, 0 );
     }
@@ -121,232 +115,205 @@ public:
     vector<vector<Point> > contours;
     vector<vector<Point> > cutContours;
     vector<Vec4i> hierarchy;
-    vector<Vec4i> cutHierarchy;
-    int imageMiddleDeltaX = 0;
+    vector<Vec4i> cut_hierarchy;
+    int image_middle_delta = 0;
     int thresh = 100;
     int max_thresh = 255;
-    int contourMinY = 960;
-    imageMiddleX = image.cols/2 - imageMiddleDeltaX;
+    int contour_min_y = image_.rows;
+    image_middle_x_ = image_.cols/2 - image_middle_delta;
 
     /// Detect edges using Threshold
-    threshold( src_gray, threshold_output, thresh, 255, THRESH_BINARY );
+    threshold(src_gray_, threshold_output, thresh, 255, THRESH_BINARY );
     /// Find contours
     findContours( threshold_output, contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, Point(0, 0));
 
-    threshold( cutImageGray, threshold_cutOutput, thresh, 255, THRESH_BINARY );
-    findContours( threshold_cutOutput, cutContours, cutHierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, Point(0, 0));
+    threshold(cut_image_gray_, threshold_cutOutput, thresh, 255, THRESH_BINARY );
+    findContours( threshold_cutOutput, cutContours, cut_hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, Point(0, 0));
 
-    detectContoursAndDraw(contours, contourMinY, threshold_output.size());
+    detectContoursAndDraw(contours, contour_min_y, threshold_output.size());
 
-    detectCutContoursAndDraw(cutContours, threshold_cutOutput.size());
+    detectCloseContours(cutContours, threshold_cutOutput.size());
 
-    vector<Point> corners;
-    goodFeaturesToTrack(src_gray, corners, 6, 0.1, 50);
+    vector<Point> corner_points;
+    goodFeaturesToTrack(src_gray_, corner_points, 4, 0.1, 50);
 
-    if (leftCorner.counter > 20 && rightCorner.counter > 20) {
-      useContourDetectionToFindCorners = true;
+    if (left_corner_.counter_ > 20 && right_corner_.counter_ > 20) {
+      use_contour_detection_to_find_corners_ = true;
     }
 
-    if (useContourDetectionToFindCorners) {
-      findCornersUsingContourDetection(contourMinY, corners);
+    if (use_contour_detection_to_find_corners_) {
+      findCornersUsingContourDetection(contour_min_y, corner_points);
     }
 
-    if (!useContourDetectionToFindCorners) {
-      keepTrackingCornersAndFindObjectLocationPixels(corners);
+    if (!use_contour_detection_to_find_corners_) {
+      keepTrackingCornersAndFindObjectLocationPixels(corner_points);
     }
 
-//    recoverCornersFromPreviousFrame(corners);
-
-//    addCornersFromPreviousFrame();
-
-    cout << "Manipulator is close: " << manipulatorIsClose << endl;
-    if (manipulatorIsClose) {
-      manipulatorToObjectDistance = 0.05;
+    cout << "Manipulator is close: " << is_manipulator_close_ << endl;
+    if (is_manipulator_close_) {
+      manipulator_to_object_distance_ = distance_to_object_close_manipulator_;
       calculateCloseManipulatorCorners(cutContours);
       detectGrayscaleSides();
       detectIfHaveToGrab();
     }
     else {
-      grayscaleFarAway = false;
-      grayscaleClose = false;
-      grayscaleFar = false;
-      grabObject = false;
+      grab_object_grayscale_close_ = false;
+      grab_object_ = false;
       detectGrayscaleSides();
     }
 
-    cout << "Corners distance " << cornersDistance << endl;
-    double deltaX = calculateDeltaX();
+    cout << "Corners distance " << corner_distance_ << endl;
+    double delta_x = calculateDeltaX();
 
     cluster_extraction::manipulatorAdjustment adjustMessage;
-    adjustMessage.counter = syncCounter;
-    adjustMessage.deltax = deltaX;
-    adjustMessage.grab = grabObject;
+    adjustMessage.counter = sync_counter_;
+    adjustMessage.deltax = delta_x;
+    adjustMessage.grab = grab_object_;
     delta_x_pub_.publish(adjustMessage);
 
     Mat tmp, dst;
-    tmp = drawing;
+    tmp = drawing_;
     dst = tmp;
 
-    Mat tmp2, dst2;
-    tmp2 = cutDrawing;
-    dst2 = tmp2;
-
     Mat tmp3, dst3;
-    tmp3 = src_gray;
+    tmp3 = src_gray_;
 
-    circle(tmp3, leftCorner.point, 20, Scalar(200, 0, 0), 4, 16, 0);
-    circle(tmp3, rightCorner.point, 20, Scalar(0, 200, 0), 4, 16, 0);
+    circle(tmp3, left_corner_.point_, 20, Scalar(0, 200, 0), 4, 16, 0);
+    circle(tmp3, right_corner_.point_, 20, Scalar(0, 200, 0), 4, 16, 0);
 
-    rectangle(tmp3, Point(lookForGrayscaleMaxXClose, lookForGrayscaleMaxYClose), Point(lookForGrayscaleMinXClose,
-                                                                                       lookForGrayscaleMinYClose), Scalar(200, 0, 0), 2, 8, 0);
+    rectangle(tmp3, Point(look_for_grayscale_max_x_close_, look_for_grayscale_max_y_close_), Point(
+        look_for_grayscale_min_x_close_,
+        look_for_grayscale_min_y_close_), Scalar(200, 0, 0), 2, 8, 0);
 
-//    rectangle(tmp3, Point(lookForGrayscaleMaxXFar, lookForGrayscaleMaxYFar), Point(lookForGrayscaleMinXFar,
-//                                                                                   lookForGrayscaleMinYFar), Scalar(200, 0, 0), 2, 8, 0);
 
-//    rectangle(tmp3, Point(lookForGrayscaleMaxXFarAway, lookForGrayscaleMaxYFarAway), Point(lookForGrayscaleMinXFarAway,
-//                                                                                           lookForGrayscaleMinYFarAway), Scalar(200, 0, 0), 2, 8, 0);
-
-    for (int i = 0; i < corners.size(); i++) {
-//      circle(tmp3, corners[i], 10, Scalar(200,200,200), 2, 8, 0);
+    for (int i = 0; i < corner_points.size(); i++) {
+      circle(tmp3, corner_points[i], 10, Scalar(200, 0, 0), 4, 10, 0);
     }
 
     pyrDown( tmp, dst, Size( tmp.cols/2, tmp.rows/2));
-//    pyrDown( tmp2, dst2, Size( tmp.cols/2, tmp.rows/2));
     pyrDown( tmp3, dst3, Size( tmp.cols/2, tmp.rows/2));
 
 //    imshow("Contours", dst);
-//    imshow("Cut image", tmp2);
+//    imshow("Cut image", cutDrawing_);
     imshow("Corners", dst3);
 
     waitKey(3);
   }
 
-  void calculateCloseManipulatorCorners(vector<vector<Point> > &cutContours) {
-    double leftPointValueX = 0;
-    double rightPointValueX = 0;
-    double maxY = cutImage.rows - 150;
-    double minY = cutImage.rows - 250;
-    double maxX = imageMiddleX + 300;
-    double minX = imageMiddleX - 350;
-    vector<Point> objectPoints;
+  void calculateCloseManipulatorCorners(vector<vector<Point> > &cut_contours) {
+    double left_point_x = 0;
+    double right_point_x = 0;
+    double max_y = cut_image_.rows - 150;
+    double min_y = cut_image_.rows - 250;
+    double max_x = image_middle_x_ + 300;
+    double minx_x = image_middle_x_ - 350;
+    vector<Point> object_points;
 
-    for (int i = 0; i < cutContours.size(); i++) {
-      if (cutContours[i].size() > 250) {
-        for (int j = 0; j < cutContours[i].size(); j++) {
-          if (cutContours[i][j].y < maxY && cutContours[i][j].y > minY && cutContours[i][j].x < maxX && cutContours[i][j].x > minX) {
-            objectPoints.push_back(cutContours[i][j]);
+    for (int i = 0; i < cut_contours.size(); i++) {
+      if (cut_contours[i].size() > detect_close_contours_with_size_min_) {
+        for (int j = 0; j < cut_contours[i].size(); j++) {
+          if (cut_contours[i][j].y < max_y && cut_contours[i][j].y > min_y && cut_contours[i][j].x < max_x && cut_contours[i][j].x > minx_x) {
+            object_points.push_back(cut_contours[i][j]);
           }
         }
 
-        cout << "Cut contour chosen points: " << objectPoints.size() << endl;
-        double leftPointTotalX = 0;
-        double rightPointTotalX = 0;
-        double rightPointCounter = 0;
-        double leftPointCounter = 0;
+        cout << "Cut contour chosen points: " << object_points.size() << endl;
+        double left_point_total_x = 0;
+        double right_point_total_x = 0;
+        double right_counter = 0;
+        double left_counter = 0;
         double totalMiddleX = 0;
-        for (int i = 0; i < objectPoints.size(); i++) {
-          totalMiddleX += objectPoints[i].x;
+        for (int i = 0; i < object_points.size(); i++) {
+          totalMiddleX += object_points[i].x;
         }
-        double leftAndRightMiddleX = totalMiddleX / objectPoints.size();
-        for (int i = 0; i < objectPoints.size(); i++) {
-          if (objectPoints[i].x > leftAndRightMiddleX) {
-            rightPointTotalX += objectPoints[i].x;
-            rightPointCounter++;
-//                cout << "Right point: " << objectPoints[i].x << endl;
+        double leftAndRightMiddleX = totalMiddleX / object_points.size();
+        for (int i = 0; i < object_points.size(); i++) {
+          if (object_points[i].x > leftAndRightMiddleX) {
+            right_point_total_x += object_points[i].x;
+            right_counter++;
           }
           else {
-            leftPointTotalX += objectPoints[i].x;
-            leftPointCounter++;
-//                cout << "Left point: " << objectPoints[i].x << endl;
+            left_point_total_x += object_points[i].x;
+            left_counter++;
           }
         }
-        leftPointValueX = leftPointTotalX / leftPointCounter;
-        rightPointValueX = rightPointTotalX / rightPointCounter;
+        left_point_x = left_point_total_x / left_counter;
+        right_point_x = right_point_total_x / right_counter;
       }
     }
 
-    if (rightPointValueX - leftPointValueX > 50) {
-      closeArray.clear();
-      leftCorner.point.x = (int) leftPointValueX;
-      rightCorner.point.x = (int) rightPointValueX;
-      closeArray.push_back(leftCorner);
-      closeArray.push_back(rightCorner);
-    }
-    else if (!closeArray.empty()){
-      leftCorner = closeArray[0];
-      rightCorner = closeArray[1];
+    if (right_point_x - left_point_x > 50) {
+      left_corner_.point_.x = (int) left_point_x;
+      right_corner_.point_.x = (int) right_point_x;
     }
   }
 
   void detectGrayscaleSides() {
-    objectTopArray.clear();
-    for(int j=0;j< src_gray.rows;j++) {
-      for (int i=0;i< src_gray.cols;i++) {
-        if(src_gray.at<uchar>(j,i) > objectGrayscaleForCentering) {
+    object_grayscale_points_.clear();
+    for(int j=0;j< src_gray_.rows;j++) {
+      for (int i=0;i< src_gray_.cols;i++) {
+        if(src_gray_.at<uchar>(j,i) > object_grayscale_for_centering_) {
 //          src_gray.at<uchar>(j,i) = 0;
-          objectTopArray.push_back(Point(i,j));
+          object_grayscale_points_.push_back(Point(i,j));
         }
       }
     }
 
-    int grayScaleMinX = 1280;
-    int grayScaleMaxX = 0;
-    int grayScaleYatMaxX = 0;
-    int grayScaleYatMinX = 0;
+    int grayscale_min_x = image_.cols;
+    int grayscale_max_x = 0;
+    int grayscale_y_at_max_x = 0;
+    int grayscale_y_at_min_x = 0;
 
-    if (objectTopArray.size() > 500) {
+    if (object_grayscale_points_.size() > min_array_size_to_use_grayscale_detection_) {
       cout << "Using color detection" << endl;
 
-      for (int i = 0; i < objectTopArray.size(); i++) {
-        if (objectTopArray[i].x > grayScaleMaxX) {
-          grayScaleMaxX = objectTopArray[i].x;
-          grayScaleYatMaxX = objectTopArray[i].y;
+      for (int i = 0; i < object_grayscale_points_.size(); i++) {
+        if (object_grayscale_points_[i].x > grayscale_max_x) {
+          grayscale_max_x = object_grayscale_points_[i].x;
+          grayscale_y_at_max_x = object_grayscale_points_[i].y;
         }
-        if (objectTopArray[i].x < grayScaleMinX) {
-          grayScaleMinX = objectTopArray[i].x;
-          grayScaleYatMinX = objectTopArray[i].y;
+        if (object_grayscale_points_[i].x < grayscale_min_x) {
+          grayscale_min_x = object_grayscale_points_[i].x;
+          grayscale_y_at_min_x = object_grayscale_points_[i].y;
         }
       }
 
-//    leftCorner.point.x = grayScaleMinX;
-//    rightCorner.point.x = grayScaleMaxX;
-
-      if (grayScaleYatMaxX > grayScaleYatMinX) {
-        int XatMaxLevel = grayScaleMaxX;
-        for (int i = 0; i < objectTopArray.size(); i++) {
-          if (objectTopArray[i].y == grayScaleYatMaxX) {
-            if (objectTopArray[i].x < XatMaxLevel) {
-              XatMaxLevel = objectTopArray[i].x;
+      if (grayscale_y_at_max_x > grayscale_y_at_min_x) {
+        int XatMaxLevel = grayscale_max_x;
+        for (int i = 0; i < object_grayscale_points_.size(); i++) {
+          if (object_grayscale_points_[i].y == grayscale_y_at_max_x) {
+            if (object_grayscale_points_[i].x < XatMaxLevel) {
+              XatMaxLevel = object_grayscale_points_[i].x;
             }
           }
         }
 
-        rightCorner.point.x = grayScaleMaxX;
-        leftCorner.point.x = XatMaxLevel;
-        rightCorner.point.y = grayScaleYatMaxX;
-        leftCorner.point.y = grayScaleYatMaxX;
+        right_corner_.point_.x = grayscale_max_x;
+        left_corner_.point_.x = XatMaxLevel;
+        right_corner_.point_.y = grayscale_y_at_max_x;
+        left_corner_.point_.y = grayscale_y_at_max_x;
       }
       else {
-        int XatMinLevel = grayScaleMinX;
-        for (int i = 0; i < objectTopArray.size(); i++) {
-          if (objectTopArray[i].y == grayScaleYatMinX) {
-            if (objectTopArray[i].x > XatMinLevel) {
-              XatMinLevel = objectTopArray[i].x;
+        int XatMinLevel = grayscale_min_x;
+        for (int i = 0; i < object_grayscale_points_.size(); i++) {
+          if (object_grayscale_points_[i].y == grayscale_y_at_min_x) {
+            if (object_grayscale_points_[i].x > XatMinLevel) {
+              XatMinLevel = object_grayscale_points_[i].x;
             }
           }
         }
 
-        rightCorner.point.x = XatMinLevel;
-        leftCorner.point.x = grayScaleMinX;
-        rightCorner.point.y = grayScaleYatMinX;
-        leftCorner.point.y = grayScaleYatMinX;
+        right_corner_.point_.x = XatMinLevel;
+        left_corner_.point_.x = grayscale_min_x;
+        right_corner_.point_.y = grayscale_y_at_min_x;
+        left_corner_.point_.y = grayscale_y_at_min_x;
       }
 
-      cout << "Grayscale min X: " << grayScaleMinX << endl;
-      cout << "Grayscale max X: " << grayScaleMaxX << endl;
+      cout << "Grayscale min X: " << grayscale_min_x << endl;
+      cout << "Grayscale max X: " << grayscale_max_x << endl;
 
-      cornersDistance = rightCorner.point.x - leftCorner.point.x;
-      objectLocationPixelsX = leftCorner.point.x + cornersDistance /2 - imageMiddleX;
+      corner_distance_ = right_corner_.point_.x - left_corner_.point_.x;
+      object_location_pixels_x_ = left_corner_.point_.x + corner_distance_ /2 - image_middle_x_;
     }
     else {
       cout << "Using contour detection" << endl;
@@ -355,128 +322,79 @@ public:
 
   void detectIfHaveToGrab() {
     double white = 0;
-    double nonWhite = 0;
-    double totalGrayscale = 0;
-    for(int j= lookForGrayscaleMinXClose;j< lookForGrayscaleMaxXClose;j++) {
-      for (int i= lookForGrayscaleMinYClose;i< lookForGrayscaleMaxYClose;i++) {
-        if(src_gray.at<uchar>(i,j) > objectGrayscaleForGrabbingClose) {
+    double non_white = 0;
+    double total_grayscale = 0;
+    for(int j= look_for_grayscale_min_x_close_;j< look_for_grayscale_max_x_close_;j++) {
+      for (int i= look_for_grayscale_min_y_close_;i< look_for_grayscale_max_y_close_;i++) {
+        if(src_gray_.at<uchar>(i,j) > object_grayscale_for_grabbing_close_) {
           white++;
         }
         else {
-          nonWhite++;
+          non_white++;
         }
-        totalGrayscale += src_gray.at<uchar>(i,j);
+        total_grayscale += src_gray_.at<uchar>(i,j);
       }
     }
 
     if (white > 400) {
-      grayscaleClose = true;
+      grab_object_grayscale_close_ = true;
     }
 
-    double averageGrayscale = totalGrayscale / (white + nonWhite);
-    cout << "CLOSE GRAB: " << grayscaleClose << endl;
+    double averageGrayscale = total_grayscale / (white + non_white);
+    cout << "CLOSE GRAB: " << grab_object_grayscale_close_ << endl;
     cout << "White: " << white << endl;
     cout << "Average grayscale: " << averageGrayscale << endl;
 
-    white = 0;
-    nonWhite = 0;
-    totalGrayscale = 0;
-    for(int j= lookForGrayscaleMinXFar;j< lookForGrayscaleMaxXFar;j++) {
-      for (int i= lookForGrayscaleMinYFar;i< lookForGrayscaleMaxYFar;i++) {
-        if(src_gray.at<uchar>(i,j) > objectGrayscaleForGrabbingFar) {
-          white++;
-        }
-        else {
-          nonWhite++;
-        }
-        totalGrayscale += src_gray.at<uchar>(i,j);
-      }
-    }
-
-    if (white > 400) {
-      grayscaleFar = true;
-    }
-
-    averageGrayscale = totalGrayscale / (white + nonWhite);
-    cout << "FAR GRAB: " << grayscaleFar << endl;
-    cout << "White: " << white << endl;
-    cout << "Average grayscale: " << averageGrayscale << endl;
-
-    white = 0;
-    nonWhite = 0;
-    totalGrayscale = 0;
-    for(int j= lookForGrayscaleMinXFarAway;j< lookForGrayscaleMaxXFarAway;j++) {
-      for (int i= lookForGrayscaleMinYFarAway;i< lookForGrayscaleMaxYFarAway;i++) {
-        if(src_gray.at<uchar>(i,j) > objectGrayscaleForGrabbingFar) {
-          white++;
-        }
-        else {
-          nonWhite++;
-        }
-        totalGrayscale += src_gray.at<uchar>(i,j);
-      }
-    }
-
-    if (white < 3000) {
-      grayscaleFarAway = true;
-    }
-
-//    averageGrayscale = totalGrayscale / (white + nonWhite);
-//    cout << "White: " << white << endl;
-//    cout << "Far Away Average grayscale: " << averageGrayscale << endl;
-//    cout << "FAR AWAY GRAB: " << grayscaleFar << endl;
-
-    if (grayscaleClose || cornersDistance < 50) {
-      grabObject = true;
+    if (grab_object_grayscale_close_ || object_grayscale_points_.size() < grab_below_grayscale_point_count_) {
+      grab_object_ = true;
     }
   }
 
-  void detectContoursAndDraw(vector<vector<Point> > &contours, int &contourMinY,
+  void detectContoursAndDraw(vector<vector<Point> > &contours, int &contour_min_y,
                              Size treshold_output_size) {
-    drawing = Mat::zeros( treshold_output_size, CV_8UC3 );
+    drawing_ = Mat::zeros( treshold_output_size, CV_8UC3 );
     vector<vector<Point> > contours_poly( contours.size() );
-    vector<Rect> boundRect( contours.size() );
+    vector<Rect> bound_rect( contours.size() );
     vector<Point2f>center( contours.size() );
     vector<float>radius( contours.size() );
 
     for( int i = 0; i < contours.size(); i++ ) {
-      if (contours[i].size() > 150 && contours[i].size() < 400) {
-        double totalY = 0;
+      if (contours[i].size() > detect_contours_with_size_min_ && contours[i].size() < detect_contours_with_size_max_) {
+        double total_y = 0;
         for (int j = 0; j < contours[i].size(); j++) {
-          totalY += contours[i][j].y;
+          total_y += contours[i][j].y;
         }
 
-        double averageY = totalY / contours[i].size();
+        double average_y = total_y / contours[i].size();
 
         approxPolyDP(Mat(contours[i]), contours_poly[i], 3, true );
-        boundRect[i] = boundingRect(Mat(contours_poly[i]) );
+        bound_rect[i] = boundingRect(Mat(contours_poly[i]) );
         minEnclosingCircle( (Mat)contours_poly[i], center[i], radius[i] );
 
-        if (image.rows*0.4 < averageY && averageY < image.rows*0.8) {
+        if (detect_contours_between_min_y_ < average_y && average_y < detect_contours_between_max_y_) {
           for (int j = 0; j < contours[i].size(); j++) {
-            if (contours[i][j].y < contourMinY) {
-              contourMinY = contours[i][j].y;
+            if (contours[i][j].y < contour_min_y) {
+              contour_min_y = contours[i][j].y;
             }
           }
+          RNG rng(12345);
+          Scalar color = Scalar( rng.uniform(0, 255), rng.uniform(0,255), rng.uniform(0,255) );
+          drawContours(drawing_, contours_poly, i, color, 1, 8, vector<Vec4i>(), 0, Point() );
+          circle(drawing_, center[i], (int)radius[i], color, 2, 8, 0 );
         }
       }
-      RNG rng(12345);
-      Scalar color = Scalar( rng.uniform(0, 255), rng.uniform(0,255), rng.uniform(0,255) );
-      drawContours( drawing, contours_poly, i, color, 1, 8, vector<Vec4i>(), 0, Point() );
-      circle( drawing, center[i], (int)radius[i], color, 2, 8, 0 );
     }
   }
 
-  void detectCutContoursAndDraw(vector<vector<Point> > &contours, Size treshold_output_size) {
-    cutDrawing = Mat::zeros( treshold_output_size, CV_8UC3 );
+  void detectCloseContours(vector<vector<Point> > &contours, Size treshold_output_size) {
+    cut_drawing_ = Mat::zeros( treshold_output_size, CV_8UC3 );
     vector<vector<Point> > contours_poly( contours.size() );
     vector<Rect> boundRect( contours.size() );
     vector<Point2f>center( contours.size() );
     vector<float>radius( contours.size() );
 
     for( int i = 0; i < contours.size(); i++ ) {
-      //      if (contours[i].size() > 150 && contours[i].size() < 1000) {
-      if (contours[i].size() > 250) {
+      if (contours[i].size() > detect_close_contours_with_size_min_) {
 
         double totalY = 0;
         for (int j = 0; j < contours[i].size(); j++) {
@@ -491,66 +409,67 @@ public:
 
         RNG rng(12345);
         Scalar color = Scalar( rng.uniform(0, 255), rng.uniform(0,255), rng.uniform(0,255) );
-        drawContours( cutDrawing, contours_poly, i, color, 1, 8, vector<Vec4i>(), 0, Point() );
-        circle( cutDrawing, center[i], (int)radius[i], color, 2, 8, 0 );
+        drawContours(cut_drawing_, contours_poly, i, color, 1, 8, vector<Vec4i>(), 0, Point() );
+        circle(cut_drawing_, center[i], (int)radius[i], color, 2, 8, 0 );
 
       }
     }
   }
 
   double calculateDeltaX() {
-    double angleToObject = abs(objectLocationPixelsX / imageMiddleX) * (horizontalAngle/2);
-    double deltaX = manipulatorToObjectDistance * tan(angleToObject * (atan(1)*4) / 180);
-    if (objectLocationPixelsX < 0) {
-      deltaX *= -1;
+    double angle_to_object = abs(object_location_pixels_x_ / image_middle_x_) * (horizontal_angle_ /2);
+    double delta_x = manipulator_to_object_distance_ * tan(angle_to_object * (atan(1)*4) / 180);
+    if (object_location_pixels_x_ < 0) {
+      delta_x *= -1;
     }
 
-    return deltaX;
+    return delta_x;
   }
 
   void findCornersUsingContourDetection(int contourMinY, vector<Point> corners) {
-    vector<Point> leftAndRightCorner;
+    vector<Point> left_and_right_corner;
 
-//    int maxY = 0;
-//    int XatMaxY = 0;
-//    for (int i = 0; i < corners.size(); i++) {
-//      cout << "Corner: X: " << corners[i].x << " Y: " << corners[i].y << endl;
-//      if (corners[i].y > maxY) {
-//        XatMaxY = corners[i].x;
-//        maxY = corners[i].y;
-//      }
-//    }
-//    cout << "MaxY: " << maxY << endl;
-//    cout << "XatMaxY " << XatMaxY << endl;
-//    for (int i = 0; i < corners.size(); i++) {
-//      if (corners[i].y == maxY && corners[i].x == XatMaxY) {
-//        leftAndRightCorner.push_back(corners[i]);
-//        corners.erase(corners.begin()+i);
-//      }
-//    }
-//
-//
-//    for (int i = 0; i < corners.size(); i++) {
-//      if (corners[i].x <= XatMaxY + 100 && corners[i].x >= XatMaxY - 100 && corners[i].y <= maxY + 50 && corners[i].y >= maxY - 50) {
-//        leftAndRightCorner.push_back(corners[i]);
-//      }
-//    }
-
+    //using lowest y value corner to detect right and left corner
+    int max_y = 0;
+    int x_at_max_y = 0;
     for (int i = 0; i < corners.size(); i++) {
-      if (corners[i].y < contourMinY + 10 && corners[i].y > contourMinY - 20) {
-        leftAndRightCorner.push_back(corners[i]);
+      cout << "Corner: X: " << corners[i].x << " Y: " << corners[i].y << endl;
+      if (corners[i].y > max_y) {
+        x_at_max_y = corners[i].x;
+        max_y = corners[i].y;
       }
     }
-    if (leftAndRightCorner.size() == 2) {
-      if (leftAndRightCorner[0].x < leftAndRightCorner[1].x) {
-        leftCorner.point = leftAndRightCorner[0];
-        rightCorner.point = leftAndRightCorner[1];
+    cout << "MaxY: " << max_y << endl;
+    cout << "X at max Y: " << x_at_max_y << endl;
+    for (int i = 0; i < corners.size(); i++) {
+      if (corners[i].y == max_y && corners[i].x == x_at_max_y) {
+        left_and_right_corner.push_back(corners[i]);
+        corners.erase(corners.begin()+i);
+      }
+    }
+
+
+    for (int i = 0; i < corners.size(); i++) {
+      if (corners[i].x <= x_at_max_y + 100 && corners[i].x >= x_at_max_y - 100 && corners[i].y <= max_y + 50 && corners[i].y >= max_y - 50) {
+        left_and_right_corner.push_back(corners[i]);
+      }
+    }
+//  CUsing contours to detect correct right and left corner
+//    for (int i = 0; i < corners.size(); i++) {
+//      if (corners[i].y < contourMinY + 10 && corners[i].y > contourMinY - 20) {
+//        left_and_right_corner.push_back(corners[i]);
+//      }
+//    }
+    if (left_and_right_corner.size() == 2) {
+      if (left_and_right_corner[0].x < left_and_right_corner[1].x) {
+        left_corner_.point_ = left_and_right_corner[0];
+        right_corner_.point_ = left_and_right_corner[1];
       }
       else {
-        leftCorner.point = leftAndRightCorner[1];
-        rightCorner.point = leftAndRightCorner[0];
+        left_corner_.point_ = left_and_right_corner[1];
+        right_corner_.point_ = left_and_right_corner[0];
       }
-      useContourDetectionToFindCorners = false;
+      use_contour_detection_to_find_corners_ = false;
     }
     else {
 //      cout << "Cannot find two corners using contour detection." << endl;
@@ -558,72 +477,25 @@ public:
   }
 
   void keepTrackingCornersAndFindObjectLocationPixels(vector<Point> &corners) {
-    leftCorner.trackCorner(corners);
-    rightCorner.trackCorner(corners);
-//    cout << "Left corner counter: " << leftCorner.counter << endl;
-//    cout << "Right corner counter: " << rightCorner.counter << endl;
-    int delta = 30;
-    if (rightCorner.counter < 5 && leftCorner.counter < 5) {
-      cornersDistance = rightCorner.point.x - leftCorner.point.x;
-    }
-    else if (leftCorner.counter > rightCorner.counter) {
-      for (int i = 0; i < corners.size(); i++) {
-        if (corners[i].x < rightCorner.point.x - cornersDistance + delta && corners[i].x > rightCorner.point.x -
-                                                                                           cornersDistance - delta &&
-            corners[i].y < rightCorner.point.y + delta  && corners[i].y > rightCorner.point.y - delta) {
+    left_corner_.trackCorner(corners, right_corner_);
+    right_corner_.trackCorner(corners, left_corner_);
 
-          leftCorner.point = corners[i];
-          leftCorner.counter = 0;
-        }
-      }
-    }
-    else {
-      for (int i = 0; i < corners.size(); i++) {
-        if (corners[i].x < leftCorner.point.x + cornersDistance + delta && corners[i].x > leftCorner.point.x +
-                                                                                          cornersDistance - delta &&
-            corners[i].y < leftCorner.point.y + delta  && corners[i].y > leftCorner.point.y - delta) {
-
-          rightCorner.point = corners[i];
-          rightCorner.counter = 0;
-        }
-      }
-    }
-    objectLocationPixelsX = leftCorner.point.x + cornersDistance /2 - imageMiddleX;
-    cout << "Delta X by pixels " << objectLocationPixelsX << endl;
-  }
-
-
-  void addCornersFromPreviousFrame() {
-    if (addObjectLastFrame && leftCorner.counter == 0 && rightCorner.counter == 0) {
-      recoveryArray.clear();
-      recoveryArray.push_back(leftCorner);
-      recoveryArray.push_back(rightCorner);
-      addObjectLastFrame = false;
-    }
-  }
-
-  void recoverCornersFromPreviousFrame(vector<Point> &corners) {
-    if (leftCorner.counter > 20 && rightCorner.counter > 20) {
-      if (!recoveryArray.empty()) {
-        recoveryArray[recoveryArray.size()-2].trackCorner(corners);
-        recoveryArray[recoveryArray.size()-1].trackCorner(corners);
-      }
-    }
+    object_location_pixels_x_ = left_corner_.point_.x + corner_distance_ /2 - image_middle_x_;
+    cout << "Delta X by pixels " << object_location_pixels_x_ << endl;
   }
 
   void objectDistanceCallback(const cluster_extraction::objectDistance msg) {
-    manipulatorToObjectDistance = msg.distance;
-    syncCounter = msg.counter + 1;
-    addObjectLastFrame = true;
-    manipulatorIsClose = msg.manipulatorIsClose;
+    manipulator_to_object_distance_ = msg.distance;
+    sync_counter_ = msg.counter + 1;
+    is_manipulator_close_ = msg.manipulatorIsClose;
   }
 };
 
 int main(int argc, char **argv)
 {
-  ros::init(argc, argv, "contour_detector");
+  ros::init(argc, argv, "manipulator_adjuster");
 
-  ContourDetector contourDetector;
+  ManipulatorAdjuster manipulator_adjuster;
 
   ros::Duration d(0.1);
   while (ros::ok()) {

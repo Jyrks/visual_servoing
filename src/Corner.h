@@ -9,37 +9,32 @@
 
 class Corner {
 public:
-  cv::Point point;
-  int counter;
-  int side;
+  cv::Point point_;
+  int counter_;
 
   Corner() {
-    counter = 0;
+    counter_ = 0;
   }
 
-  void trackCorner(std::vector<cv::Point> &corners) {
+  void trackCorner(std::vector<cv::Point> &corners, Corner otherCorner) {
     int delta = 30;
     bool foundCorner = false;
     for (int i = 0; i < corners.size(); i++) {
-      if (corners[i].x < point.x + delta && corners[i].x > point.x - delta && corners[i].y < point.y + delta && corners[i].y > point.y - delta) {
-        point = corners[i];
-        foundCorner = true;
-        break;
+      if (corners[i].x < point_.x + delta && corners[i].x > point_.x - delta && corners[i].y < point_.y + delta && corners[i].y > point_.y - delta) {
+        if (corners[i].x != otherCorner.point_.x && corners[i].y != otherCorner.point_.y) {
+          point_ = corners[i];
+          foundCorner = true;
+          break;
+        }
       }
     }
     if (foundCorner == true) {
-      counter = 0;
+      counter_ = 0;
     }
     else {
-      counter++;
+      counter_++;
     }
   }
 };
-
-enum {
-  LEFT = 0,
-  RIGHT = 1
-};
-
 
 #endif //CONTOUR_DETECTION_CORNER_H

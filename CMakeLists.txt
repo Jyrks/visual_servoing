@@ -32,7 +32,7 @@ find_package(
 
  generate_messages(
     DEPENDENCIES
-    std_msgs  # Or other packages containing msgs
+    std_msgs
     geometry_msgs
     trajectory_msgs
     shape_msgs
@@ -48,11 +48,8 @@ target_link_libraries (cluster_extraction ${catkin_LIBRARIES} ${PCL_LIBRARIES} $
 add_executable (cluster_transform src/cluster_transform.cpp)
 target_link_libraries (cluster_transform ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${pcl_ros_LIBRARIES})
 
-add_executable (hand_transform src/hand_transform.cpp)
-target_link_libraries (hand_transform ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${pcl_ros_LIBRARIES})
-
-add_executable (cluster_controller src/cluster_controller.cpp)
-target_link_libraries (cluster_controller ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${pcl_ros_LIBRARIES})
+add_executable (manipulator_controller src/manipulator_controller.cpp)
+target_link_libraries (manipulator_controller ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${pcl_ros_LIBRARIES})
 
 add_executable( manipulator_adjuster src/manipulator_adjuster.cpp src/Corner.cpp src/Corner.h)
 target_link_libraries ( manipulator_adjuster ${OpenCV_LIBRARIES} ${catkin_LIBRARIES} )
